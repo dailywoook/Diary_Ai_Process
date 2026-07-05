@@ -1,0 +1,1940 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>그림일기</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* ===== 디자인 토큰 ===== */
+    :root {
+      --color-bg:           #FAF8F5;
+      --color-surface:      #FFFFFF;
+      --color-canvas-bg:    #FEFCF9;
+      --color-text-primary: #1A1A1A;
+      --color-text-sub:     #8A8A8A;
+      --color-border:       #E5E0D8;
+      --color-disabled:     #C4BFB8;
+      --color-accent:       #6B4F3A;
+      --color-danger:       #D94F3D;
+
+      /* 드로잉 팔레트 */
+      --sw1: #1A1A1A;
+      --sw2: #6B6B6B;
+      --sw3: #B87870;
+      --sw4: #C09070;
+      --sw5: #C4AF70;
+      --sw6: #7BAA8A;
+      --sw7: #7090B8;
+      --sw8: #9080B8;
+
+      --bar-top: 48px;
+      --bar-bottom: 56px;
+      --radius-btn: 8px;
+      --radius-sheet: 16px;
+      --font-stack: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif;
+    }
+
+    /* ===== 리셋 & 기본 ===== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--color-bg);
+      font-family: var(--font-stack);
+      color: var(--color-text-primary);
+      /* iOS safe area */
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    button {
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    /* ===== 앱 레이아웃 ===== */
+    #app {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    /* ===== 상단 바 ===== */
+    #top-bar {
+      flex-shrink: 0;
+      height: var(--bar-top);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border);
+      position: relative;
+      z-index: 10;
+    }
+
+    /* 날짜 바 (읽기 모드) */
+    #date-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    #date-bar .nav-btn {
+      min-width: 44px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-accent);
+    }
+
+    #date-bar .nav-btn:disabled {
+      color: var(--color-disabled);
+      cursor: default;
+    }
+
+    #date-display {
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--color-text-primary);
+      text-align: center;
+      flex: 1;
+    }
+
+    /* 편집 바 */
+    #edit-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    #edit-bar .edit-bar-date {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--color-text-sub);
+      text-align: center;
+      flex: 1;
+    }
+
+    #btn-cancel {
+      min-width: 44px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-accent);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 0 12px;
+    }
+
+    #btn-save {
+      min-width: 44px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-accent);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 0 12px;
+    }
+
+    /* ===== 캔버스 영역 ===== */
+    #canvas-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--color-canvas-bg);
+    }
+
+    #main-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+
+    /* 빈 캔버스 안내 (읽기 모드, 기록 없을 때) */
+    #empty-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    #empty-hint .hint-icon {
+      color: var(--color-disabled);
+    }
+
+    #empty-hint .hint-text {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--color-disabled);
+    }
+
+    /* 텍스트 입력 오버레이 */
+    #text-overlay {
+      position: absolute;
+      display: none;
+      min-width: 120px;
+      max-width: calc(100% - 32px);
+      min-height: 32px;
+      padding: 6px 8px;
+      border: 1.5px dashed var(--color-accent);
+      border-radius: 4px;
+      background: rgba(254, 252, 249, 0.92);
+      font-family: var(--font-stack);
+      font-size: 16px;
+      color: var(--color-text-primary);
+      outline: none;
+      word-break: break-word;
+      white-space: pre-wrap;
+      cursor: text;
+      z-index: 20;
+    }
+
+    /* ===== 하단 바 ===== */
+    #bottom-bar {
+      flex-shrink: 0;
+      height: var(--bar-bottom);
+      display: flex;
+      align-items: center;
+      background: var(--color-bg);
+      border-top: 1px solid var(--color-border);
+      position: relative;
+      z-index: 10;
+    }
+
+    /* 읽기 모드 액션 바 */
+    #action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 0 16px;
+    }
+
+    #btn-edit-start {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 16px;
+      border: 1.5px solid var(--color-accent);
+      border-radius: var(--radius-btn);
+      color: var(--color-accent);
+      font-size: 13px;
+      font-weight: 500;
+      background: transparent;
+    }
+
+    #btn-share {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 12px;
+      color: var(--color-accent);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    #btn-share.disabled {
+      color: var(--color-disabled);
+      pointer-events: none;
+    }
+
+    /* 편집 모드 도구 모음 */
+    #tool-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-around;
+      width: 100%;
+      padding: 0 8px;
+    }
+
+    .tool-btn {
+      min-width: 44px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      color: var(--color-text-primary);
+      position: relative;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .tool-btn.active {
+      background: rgba(107, 79, 58, 0.12);
+      color: var(--color-accent);
+    }
+
+    .tool-btn .tool-label {
+      font-size: 9px;
+      font-weight: 500;
+      color: inherit;
+      line-height: 1;
+    }
+
+    /* 오브젝트 선택 시 도구 모음 대체 */
+    #object-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 0 24px;
+    }
+
+    #btn-obj-delete {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      color: var(--color-danger);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    #btn-obj-done {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      color: var(--color-accent);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* ===== 색상·굵기 서랍 ===== */
+    #color-drawer {
+      position: absolute;
+      bottom: var(--bar-bottom);
+      left: 0;
+      right: 0;
+      background: var(--color-surface);
+      border-top: 1px solid var(--color-border);
+      padding: 14px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 9;
+      transform: translateY(100%);
+      transition: transform 0.2s ease-out;
+    }
+
+    #color-drawer.open {
+      transform: translateY(0);
+    }
+
+    .color-swatches {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .swatch-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.1s;
+      /* 최소 터치 영역 확보 */
+      position: relative;
+    }
+
+    .swatch-btn::after {
+      content: '';
+      position: absolute;
+      top: -8px;
+      left: -8px;
+      right: -8px;
+      bottom: -8px;
+    }
+
+    .swatch-btn.selected {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+    }
+
+    .size-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .size-label {
+      font-size: 11px;
+      color: var(--color-text-sub);
+      flex-shrink: 0;
+      width: 28px;
+    }
+
+    #pen-size-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--color-border);
+      outline: none;
+      cursor: pointer;
+    }
+
+    #pen-size-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      cursor: pointer;
+    }
+
+    #pen-size-slider::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      cursor: pointer;
+      border: none;
+    }
+
+    .size-preview {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #pen-size-preview-dot {
+      border-radius: 50%;
+      background: var(--color-text-primary);
+    }
+
+    /* ===== 공유 시트 ===== */
+    #share-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.28);
+      z-index: 50;
+      display: none;
+      align-items: flex-end;
+    }
+
+    #share-overlay.open {
+      display: flex;
+    }
+
+    #share-sheet {
+      width: 100%;
+      background: var(--color-surface);
+      border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+      padding: 20px 16px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transform: translateY(100%);
+      transition: transform 0.2s ease-out;
+    }
+
+    #share-overlay.open #share-sheet {
+      transform: translateY(0);
+    }
+
+    .sheet-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      text-align: center;
+      padding-bottom: 4px;
+    }
+
+    .sheet-btn {
+      width: 100%;
+      min-height: 50px;
+      border-radius: var(--radius-btn);
+      font-size: 14px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sheet-btn.primary {
+      background: var(--color-accent);
+      color: #FFFFFF;
+    }
+
+    .sheet-btn.secondary {
+      background: transparent;
+      border: 1.5px solid var(--color-border);
+      color: var(--color-text-primary);
+    }
+
+    /* ===== 확인 다이얼로그 ===== */
+    #confirm-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.28);
+      z-index: 60;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    #confirm-overlay.open {
+      display: flex;
+    }
+
+    #confirm-dialog {
+      background: var(--color-surface);
+      border-radius: var(--radius-sheet);
+      padding: 24px 20px 16px;
+      width: 100%;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dialog-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      text-align: center;
+    }
+
+    .dialog-desc {
+      font-size: 13px;
+      color: var(--color-text-sub);
+      text-align: center;
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+
+    .dialog-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dialog-btn {
+      width: 100%;
+      min-height: 44px;
+      border-radius: var(--radius-btn);
+      font-size: 14px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dialog-btn.danger {
+      color: var(--color-danger);
+      border: 1.5px solid var(--color-border);
+    }
+
+    .dialog-btn.secondary {
+      background: var(--color-accent);
+      color: #FFFFFF;
+    }
+
+    /* ===== 토스트 ===== */
+    #toast {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%) translateY(0);
+      bottom: calc(var(--bar-bottom) + 16px);
+      background: rgba(26, 26, 26, 0.70);
+      color: #FFFFFF;
+      font-size: 13px;
+      font-weight: 400;
+      padding: 10px 18px;
+      border-radius: 20px;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+      max-width: calc(100% - 48px);
+      white-space: normal;
+      text-align: center;
+    }
+
+    #toast.show {
+      opacity: 1;
+    }
+
+    #toast.error {
+      background: rgba(217, 79, 61, 0.88);
+    }
+
+    /* ===== 파일 입력 (숨김) ===== */
+    #file-input {
+      display: none;
+    }
+
+    /* ===== 오브젝트 핸들 오버레이 ===== */
+    #handle-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    .object-handle-box {
+      position: absolute;
+      border: 1.5px dashed var(--color-accent);
+      pointer-events: all;
+      cursor: move;
+    }
+
+    .handle-corner {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--color-surface);
+      border: 2px solid var(--color-accent);
+      cursor: nwse-resize;
+      transform: translate(-50%, -50%);
+      pointer-events: all;
+      touch-action: none;
+    }
+
+    .handle-corner.br {
+      cursor: nwse-resize;
+    }
+
+    .handle-corner.bl {
+      cursor: nesw-resize;
+    }
+
+    .handle-corner.tr {
+      cursor: nesw-resize;
+    }
+
+    .handle-corner.tl {
+      cursor: nwse-resize;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 상단 바 -->
+  <div id="top-bar">
+    <!-- 읽기 모드: 날짜 바 -->
+    <div id="date-bar">
+      <button class="nav-btn" id="btn-prev" aria-label="이전 날짜">
+        <i data-lucide="chevron-left" width="18" height="18"></i>
+      </button>
+      <span id="date-display"></span>
+      <button class="nav-btn" id="btn-next" aria-label="다음 날짜">
+        <i data-lucide="chevron-right" width="18" height="18"></i>
+      </button>
+    </div>
+    <!-- 편집 모드: 편집 바 -->
+    <div id="edit-bar">
+      <button id="btn-cancel">취소</button>
+      <span class="edit-bar-date" id="edit-date-display"></span>
+      <button id="btn-save">저장</button>
+    </div>
+  </div>
+
+  <!-- 캔버스 영역 -->
+  <div id="canvas-area">
+    <canvas id="main-canvas"></canvas>
+
+    <!-- 빈 캔버스 안내 -->
+    <div id="empty-hint">
+      <span class="hint-icon">
+        <i data-lucide="pen-line" width="28" height="28"></i>
+      </span>
+      <span class="hint-text">오늘을 기록해보세요</span>
+    </div>
+
+    <!-- 텍스트 입력 오버레이 -->
+    <div id="text-overlay" contenteditable="true" role="textbox" aria-label="텍스트 입력" aria-multiline="true"></div>
+
+    <!-- 오브젝트 핸들 오버레이 -->
+    <div id="handle-overlay"></div>
+  </div>
+
+  <!-- 색상·굵기 서랍 (하단 바 위에 붙음) -->
+  <div id="color-drawer">
+    <div class="color-swatches">
+      <button class="swatch-btn selected" data-color="#1A1A1A" style="background:#1A1A1A" aria-label="검정"></button>
+      <button class="swatch-btn" data-color="#6B6B6B" style="background:#6B6B6B" aria-label="회색"></button>
+      <button class="swatch-btn" data-color="#B87870" style="background:#B87870" aria-label="로즈레드"></button>
+      <button class="swatch-btn" data-color="#C09070" style="background:#C09070" aria-label="테라코타"></button>
+      <button class="swatch-btn" data-color="#C4AF70" style="background:#C4AF70" aria-label="옐로오커"></button>
+      <button class="swatch-btn" data-color="#7BAA8A" style="background:#7BAA8A" aria-label="세이지"></button>
+      <button class="swatch-btn" data-color="#7090B8" style="background:#7090B8" aria-label="더스티블루"></button>
+      <button class="swatch-btn" data-color="#9080B8" style="background:#9080B8" aria-label="라벤더"></button>
+    </div>
+    <div class="size-row">
+      <span class="size-label">굵기</span>
+      <input type="range" id="pen-size-slider" min="2" max="20" value="4" aria-label="펜 굵기" />
+      <div class="size-preview">
+        <div id="pen-size-preview-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 바 -->
+  <div id="bottom-bar">
+    <!-- 읽기 모드: 액션 바 -->
+    <div id="action-bar">
+      <button id="btn-edit-start">오늘 기록 시작</button>
+      <button id="btn-share" class="disabled">
+        <i data-lucide="share-2" width="18" height="18"></i>
+        공유
+      </button>
+    </div>
+
+    <!-- 편집 모드: 도구 모음 -->
+    <div id="tool-bar">
+      <button class="tool-btn" id="tool-undo" aria-label="실행취소">
+        <i data-lucide="undo-2" width="18" height="18"></i>
+      </button>
+      <button class="tool-btn active" id="tool-pen" aria-label="펜">
+        <i data-lucide="pen-line" width="18" height="18"></i>
+      </button>
+      <button class="tool-btn" id="tool-eraser" aria-label="지우개">
+        <i data-lucide="eraser" width="18" height="18"></i>
+      </button>
+      <button class="tool-btn" id="tool-text" aria-label="텍스트">
+        <i data-lucide="type" width="18" height="18"></i>
+      </button>
+      <button class="tool-btn" id="tool-image" aria-label="사진">
+        <i data-lucide="image" width="18" height="18"></i>
+      </button>
+    </div>
+
+    <!-- 오브젝트 선택 시: 오브젝트 바 -->
+    <div id="object-bar">
+      <button id="btn-obj-delete">삭제</button>
+      <button id="btn-obj-done">완료</button>
+    </div>
+  </div>
+
+  <!-- 공유 시트 -->
+  <div id="share-overlay" role="dialog" aria-label="공유">
+    <div id="share-sheet">
+      <p class="sheet-title">공유하기</p>
+      <button class="sheet-btn primary" id="btn-download-png">이미지로 저장 (PNG)</button>
+      <button class="sheet-btn secondary" id="btn-share-close">닫기</button>
+    </div>
+  </div>
+
+  <!-- 변경사항 버리기 확인 다이얼로그 -->
+  <div id="confirm-overlay" role="dialog" aria-label="변경 사항 확인">
+    <div id="confirm-dialog">
+      <p class="dialog-title">변경 사항을 버릴까요?</p>
+      <p class="dialog-desc">저장되지 않은 변경 사항이 사라집니다.</p>
+      <div class="dialog-actions">
+        <button class="dialog-btn secondary" id="btn-keep-editing">계속 편집</button>
+        <button class="dialog-btn danger" id="btn-discard">버리기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 토스트 -->
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- 파일 입력 (숨김) -->
+  <input type="file" id="file-input" accept="image/*" />
+
+</div>
+
+<script>
+// ===== IndexedDB 헬퍼 =====
+const DB_NAME = 'drawing-diary-db';
+const DB_VERSION = 1;
+const STORE_NAME = 'entries';
+
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE_NAME)) {
+        d.createObjectStore(STORE_NAME, { keyPath: 'date' });
+      }
+    };
+    req.onsuccess = (e) => {
+      db = e.target.result;
+      resolve(db);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbGet(date) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const req = tx.objectStore(STORE_NAME).get(date);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbPut(record) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const req = tx.objectStore(STORE_NAME).put(record);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ===== 앱 상태 =====
+const state = {
+  mode: 'read',           // 'read' | 'edit'
+  currentDate: '',        // 'YYYY-MM-DD'
+  tool: 'pen',            // 'pen' | 'eraser' | 'text' | 'image'
+  penColor: '#1A1A1A',
+  penSize: 4,
+  strokes: [],            // 획 배열 — 각 획: { type, color, size, points }
+  objects: [],            // 사진·텍스트 오브젝트 배열
+  history: [],            // undo 순서 스택 — { type: 'stroke' | 'object' }
+  drawerOpen: false,
+  hasChanges: false,      // 편집 모드에서 변경 여부
+  savedPng: null,         // 마지막 저장본 PNG dataURL (버리기 복원용)
+  savedPngImg: null,      // 캐싱된 Image 객체 (재파싱 방지)
+  selectedObjIdx: -1,     // 선택된 오브젝트 인덱스
+  isDrawing: false,
+  currentStroke: null,
+};
+
+// ===== DOM 참조 =====
+const $ = (id) => document.getElementById(id);
+const canvas = $('main-canvas');
+const ctx = canvas.getContext('2d');
+
+const dateBar = $('date-bar');
+const editBar = $('edit-bar');
+const dateDisplay = $('date-display');
+const editDateDisplay = $('edit-date-display');
+const btnPrev = $('btn-prev');
+const btnNext = $('btn-next');
+const btnCancel = $('btn-cancel');
+const btnSave = $('btn-save');
+
+const actionBar = $('action-bar');
+const toolBar = $('tool-bar');
+const objectBar = $('object-bar');
+const btnEditStart = $('btn-edit-start');
+const btnShare = $('btn-share');
+
+const colorDrawer = $('color-drawer');
+const penSizeSlider = $('pen-size-slider');
+const penSizePreviewDot = $('pen-size-preview-dot');
+
+const shareOverlay = $('share-overlay');
+const confirmOverlay = $('confirm-overlay');
+const toast = $('toast');
+const fileInput = $('file-input');
+const emptyHint = $('empty-hint');
+const textOverlay = $('text-overlay');
+const handleOverlay = $('handle-overlay');
+
+// ===== 날짜 유틸 =====
+function toDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function fromDateStr(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatDateKo(s) {
+  const d = fromDateStr(s);
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+
+function formatDateShort(s) {
+  const d = fromDateStr(s);
+  return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
+}
+
+function getToday() {
+  return toDateStr(new Date());
+}
+
+function isFuture(dateStr) {
+  return dateStr > getToday();
+}
+
+function addDays(dateStr, n) {
+  const d = fromDateStr(dateStr);
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+}
+
+// ===== XSS 방지 유틸 =====
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ===== 캔버스 크기 설정 =====
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const area = $('canvas-area');
+  const w = area.clientWidth;
+  const h = area.clientHeight;
+
+  // 물리 픽셀 크기 설정
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+
+  // CSS 크기는 논리 크기로 고정
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+
+  // scale 적용 (이후 모든 draw는 논리 픽셀 기준으로 작성 가능)
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // 리사이즈 후 재렌더링
+  rerenderCanvas();
+}
+
+// ===== 캔버스 재렌더링 =====
+// 저장본이 있으면 저장본을 먼저 그리고, 그 위에 현재 획/오브젝트 올림
+function rerenderCanvas() {
+  if (state.savedPng) {
+    loadPngToCanvas(state.savedPng).then(() => rerenderOnTop());
+  } else {
+    rerenderCanvasBlank();
+  }
+}
+
+function rerenderCanvasBlank() {
+  const w = canvas.width / (window.devicePixelRatio || 1);
+  const h = canvas.height / (window.devicePixelRatio || 1);
+
+  ctx.clearRect(0, 0, w, h);
+
+  // 배경 채우기
+  ctx.fillStyle = '#FEFCF9';
+  ctx.fillRect(0, 0, w, h);
+
+  // 오브젝트(사진·텍스트) 먼저 그리기
+  for (const obj of state.objects) {
+    drawObject(obj);
+  }
+
+  // 획 그리기
+  for (const stroke of state.strokes) {
+    drawStroke(stroke);
+  }
+}
+
+// ===== 획 그리기 =====
+function drawStroke(stroke) {
+  if (!stroke.points || stroke.points.length < 2) {
+    // 점 하나인 경우 원으로 표시
+    if (stroke.points && stroke.points.length === 1) {
+      const p = stroke.points[0];
+      if (stroke.type === 'eraser') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, stroke.size / 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,1)';
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, stroke.size / 2, 0, Math.PI * 2);
+        ctx.fillStyle = stroke.color;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    return;
+  }
+
+  ctx.save();
+
+  if (stroke.type === 'eraser') {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,1)';
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = stroke.color;
+  }
+
+  ctx.lineWidth = stroke.size;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+
+  // 부드러운 곡선으로 연결
+  for (let i = 1; i < stroke.points.length - 1; i++) {
+    const mx = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
+    const my = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, mx, my);
+  }
+
+  const last = stroke.points[stroke.points.length - 1];
+  ctx.lineTo(last.x, last.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ===== 오브젝트 그리기 =====
+function drawObject(obj) {
+  if (obj.type === 'image') {
+    if (!obj.img) return;
+    ctx.save();
+    ctx.drawImage(obj.img, obj.x, obj.y, obj.width, obj.height);
+    ctx.restore();
+  } else if (obj.type === 'text') {
+    ctx.save();
+    ctx.font = `${obj.fontSize || 16}px ${getComputedStyle(document.body).fontFamily}`;
+    ctx.fillStyle = obj.color || '#1A1A1A';
+    ctx.textBaseline = 'top';
+    // 여러 줄 처리
+    const lines = obj.text.split('\n');
+    const lineH = (obj.fontSize || 16) * 1.4;
+    lines.forEach((line, i) => {
+      ctx.fillText(line, obj.x, obj.y + i * lineH);
+    });
+    ctx.restore();
+  }
+}
+
+// ===== 날짜별 페이지 로드 =====
+async function loadPage(dateStr) {
+  state.currentDate = dateStr;
+  state.strokes = [];
+  state.objects = [];
+  state.selectedObjIdx = -1;
+  state.hasChanges = false;
+  state.savedPngImg = null;
+
+  updateDateUI();
+  clearHandles();
+
+  const entry = await dbGet(dateStr);
+  if (entry && entry.canvasPng) {
+    state.savedPng = entry.canvasPng;
+    await loadPngToCanvas(entry.canvasPng);
+    showEmptyHint(false);
+    updateActionBar(true);
+  } else {
+    state.savedPng = null;
+    rerenderCanvasBlank();
+    showEmptyHint(true);
+    updateActionBar(false);
+  }
+}
+
+function loadPngToCanvas(dataUrl) {
+  return new Promise((resolve) => {
+    // 같은 dataUrl이면 캐싱된 이미지 재사용
+    if (state.savedPngImg && state.savedPngImg.src === dataUrl) {
+      const img = state.savedPngImg;
+      const w = canvas.width / (window.devicePixelRatio || 1);
+      const h = canvas.height / (window.devicePixelRatio || 1);
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve();
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      state.savedPngImg = img;
+      const w = canvas.width / (window.devicePixelRatio || 1);
+      const h = canvas.height / (window.devicePixelRatio || 1);
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve();
+    };
+    img.onerror = () => {
+      showToast('그림을 불러오지 못했습니다', true);
+      resolve();
+    };
+    img.src = dataUrl;
+  });
+}
+
+// ===== UI 업데이트 =====
+function updateDateUI() {
+  dateDisplay.textContent = formatDateKo(state.currentDate);
+  editDateDisplay.textContent = formatDateShort(state.currentDate);
+
+  // 이전 버튼: 항상 활성 (오래된 날짜까지 이동 가능)
+  btnPrev.disabled = false;
+
+  // 다음 버튼: 오늘 이후 비활성
+  const next = addDays(state.currentDate, 1);
+  btnNext.disabled = isFuture(next);
+}
+
+function updateActionBar(hasRecord) {
+  if (hasRecord) {
+    btnEditStart.textContent = '편집';
+  } else {
+    btnEditStart.textContent = '오늘 기록 시작';
+  }
+
+  if (hasRecord) {
+    btnShare.classList.remove('disabled');
+  } else {
+    btnShare.classList.add('disabled');
+  }
+}
+
+function showEmptyHint(visible) {
+  emptyHint.style.display = visible ? 'flex' : 'none';
+}
+
+// ===== 모드 전환 =====
+function enterEditMode() {
+  state.mode = 'edit';
+  state.hasChanges = false;
+  state.strokes = [];
+  state.objects = [];
+  state.history = [];
+
+  // 바 전환
+  dateBar.style.display = 'none';
+  editBar.style.display = 'flex';
+  actionBar.style.display = 'none';
+  toolBar.style.display = 'flex';
+  objectBar.style.display = 'none';
+
+  // 기본 도구: 펜
+  setTool('pen');
+
+  // 저장본이 있으면 캔버스에 로드 (편집 기준점)
+  // 이미 읽기 모드에서 loadPngToCanvas 했으므로 그대로 유지
+  // 단, strokes 배열은 비워졌으므로 undo는 저장본 이후부터만 가능
+
+  showEmptyHint(false);
+}
+
+function exitEditMode() {
+  state.mode = 'read';
+  state.drawerOpen = false;
+  colorDrawer.classList.remove('open');
+  state.selectedObjIdx = -1;
+  clearHandles();
+  closeTextOverlay(false);
+
+  dateBar.style.display = 'flex';
+  editBar.style.display = 'none';
+  toolBar.style.display = 'none';
+  objectBar.style.display = 'none';
+  actionBar.style.display = 'flex';
+}
+
+// ===== 도구 선택 =====
+function setTool(tool) {
+  state.tool = tool;
+
+  // 모든 tool-btn에서 active 제거
+  document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+
+  // 선택된 도구 활성화
+  const toolBtnMap = {
+    pen: 'tool-pen',
+    eraser: 'tool-eraser',
+    text: 'tool-text',
+    image: 'tool-image',
+  };
+
+  if (toolBtnMap[tool]) {
+    $(toolBtnMap[tool]).classList.add('active');
+  }
+
+  // 서랍 열기/닫기
+  if (tool === 'pen') {
+    openDrawer();
+  } else {
+    closeDrawer();
+  }
+
+  // 선택 해제
+  deselectObject();
+}
+
+function openDrawer() {
+  state.drawerOpen = true;
+  colorDrawer.classList.add('open');
+}
+
+function closeDrawer() {
+  state.drawerOpen = false;
+  colorDrawer.classList.remove('open');
+}
+
+// ===== 저장 =====
+async function saveEntry() {
+  // 텍스트 오버레이가 열려 있으면 먼저 확정
+  closeTextOverlay(true);
+
+  try {
+    const dataUrl = canvas.toDataURL('image/png');
+    await dbPut({
+      date: state.currentDate,
+      canvasPng: dataUrl,
+      objects: [],
+    });
+
+    state.savedPng = dataUrl;
+    state.savedPngImg = null; // 저장 후 캐시 무효화
+    state.hasChanges = false;
+
+    exitEditMode();
+    showEmptyHint(false);
+    updateActionBar(true);
+    showToast('저장되었습니다', false);
+  } catch (err) {
+    showToast('저장에 실패했습니다. 브라우저 저장공간을 확인해주세요', true);
+  }
+}
+
+// ===== 취소 =====
+function handleCancel() {
+  if (!state.hasChanges) {
+    // 변경 없음: 즉시 읽기 모드 복귀
+    doDiscard();
+    return;
+  }
+  // 변경 있음: 확인 다이얼로그
+  confirmOverlay.classList.add('open');
+}
+
+function doDiscard() {
+  confirmOverlay.classList.remove('open');
+  // 마지막 저장본 복원
+  exitEditMode();
+  if (state.savedPng) {
+    loadPngToCanvas(state.savedPng).then(() => {
+      showEmptyHint(false);
+      updateActionBar(true);
+    });
+  } else {
+    rerenderCanvasBlank();
+    showEmptyHint(true);
+    updateActionBar(false);
+  }
+}
+
+// ===== 토스트 =====
+let toastTimer = null;
+function showToast(msg, isError) {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast.textContent = msg;
+  toast.classList.remove('show', 'error');
+  toast.classList.add('show');
+  if (isError) toast.classList.add('error');
+  const dur = isError ? 4000 : 2000;
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show', 'error');
+  }, dur);
+}
+
+// ===== 포인터 이벤트 (그리기) =====
+function getCanvasPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
+  };
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (state.mode !== 'edit') {
+    // 읽기 모드에서는 스와이프만
+    return;
+  }
+
+  e.preventDefault();
+
+  // 텍스트 도구: 오버레이 배치
+  if (state.tool === 'text') {
+    const pos = getCanvasPos(e);
+    openTextOverlay(pos.x, pos.y);
+    return;
+  }
+
+  // 오브젝트가 선택 중이면 오브젝트 조작 우선
+  if (state.selectedObjIdx >= 0) {
+    // 핸들 영역 바깥 탭 → 선택 해제 후 그리기
+    deselectObject();
+  }
+
+  if (state.tool !== 'pen' && state.tool !== 'eraser') return;
+
+  state.isDrawing = true;
+  const pos = getCanvasPos(e);
+
+  state.currentStroke = {
+    type: state.tool,
+    color: state.penColor,
+    size: state.penSize,
+    points: [pos],
+  };
+
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!state.isDrawing || !state.currentStroke) return;
+  e.preventDefault();
+
+  const pos = getCanvasPos(e);
+  state.currentStroke.points.push(pos);
+
+  // 실시간 그리기: 마지막 두 점만 그리기 (성능)
+  const pts = state.currentStroke.points;
+  if (pts.length >= 2) {
+    ctx.save();
+
+    if (state.currentStroke.type === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = state.currentStroke.color;
+    }
+
+    ctx.lineWidth = state.currentStroke.size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    if (pts.length === 2) {
+      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.lineTo(pts[1].x, pts[1].y);
+    } else {
+      const prev = pts[pts.length - 3];
+      const cur = pts[pts.length - 2];
+      const next = pts[pts.length - 1];
+      const mx = (cur.x + next.x) / 2;
+      const my = (cur.y + next.y) / 2;
+      ctx.moveTo((prev.x + cur.x) / 2, (prev.y + cur.y) / 2);
+      ctx.quadraticCurveTo(cur.x, cur.y, mx, my);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+});
+
+canvas.addEventListener('pointerup', (e) => {
+  if (!state.isDrawing || !state.currentStroke) return;
+  e.preventDefault();
+
+  state.isDrawing = false;
+  state.strokes.push(state.currentStroke);
+  state.history.push({ type: 'stroke' });
+  state.currentStroke = null;
+  state.hasChanges = true;
+});
+
+canvas.addEventListener('pointercancel', () => {
+  if (state.isDrawing) {
+    state.isDrawing = false;
+    if (state.currentStroke) {
+      state.strokes.push(state.currentStroke);
+      state.currentStroke = null;
+    }
+  }
+});
+
+// ===== 실행취소 =====
+async function undo() {
+  const last = state.history.pop();
+  if (!last) return;
+
+  if (last.type === 'stroke') {
+    state.strokes.pop();
+  } else if (last.type === 'object') {
+    state.objects.pop();
+  }
+
+  state.hasChanges = true;
+  deselectObject();
+
+  // 저장본 위에 현재 상태 재렌더링
+  if (state.savedPng) {
+    await loadPngToCanvas(state.savedPng);
+    rerenderOnTop();
+  } else {
+    rerenderCanvasBlank();
+  }
+}
+
+// 저장본 위에 현재 오브젝트·획 재렌더링 (동기)
+function rerenderOnTop() {
+  for (const obj of state.objects) {
+    drawObject(obj);
+  }
+  for (const stroke of state.strokes) {
+    drawStroke(stroke);
+  }
+}
+
+// ===== 사진 삽입 =====
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onload = () => {
+      const cw = canvas.width / (window.devicePixelRatio || 1);
+      const ch = canvas.height / (window.devicePixelRatio || 1);
+
+      // 이미지를 캔버스 크기에 맞게 축소 (최대 60% 크기)
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      const maxW = cw * 0.6;
+      const maxH = ch * 0.6;
+      if (w > maxW) { h = h * (maxW / w); w = maxW; }
+      if (h > maxH) { w = w * (maxH / h); h = maxH; }
+
+      const x = (cw - w) / 2;
+      const y = (ch - h) / 2;
+
+      const obj = { type: 'image', img, x, y, width: w, height: h };
+      state.objects.push(obj);
+      state.history.push({ type: 'object' });
+      state.hasChanges = true;
+
+      drawObject(obj);
+      selectObject(state.objects.length - 1);
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+
+  // 같은 파일 재선택 가능하도록 초기화
+  fileInput.value = '';
+});
+
+// ===== 텍스트 오버레이 =====
+function openTextOverlay(x, y) {
+  // 이미 열려있으면 확정 후 새 위치에 열기
+  if (textOverlay.style.display === 'block') {
+    closeTextOverlay(true);
+  }
+
+  textOverlay.textContent = '';
+  textOverlay.style.display = 'block';
+  textOverlay.style.left = x + 'px';
+  textOverlay.style.top = y + 'px';
+  textOverlay.style.minWidth = '120px';
+
+  // 포커스
+  setTimeout(() => textOverlay.focus(), 50);
+}
+
+function closeTextOverlay(commit) {
+  if (textOverlay.style.display !== 'block') return;
+
+  if (commit) {
+    // textContent 사용 (XSS 방지)
+    const text = textOverlay.textContent.trim();
+    if (text) {
+      const x = parseInt(textOverlay.style.left, 10);
+      const y = parseInt(textOverlay.style.top, 10);
+      const fontSize = 16;
+
+      const obj = { type: 'text', text, x, y, fontSize, color: state.penColor };
+      state.objects.push(obj);
+      state.history.push({ type: 'object' });
+      state.hasChanges = true;
+
+      drawObject(obj);
+      selectObject(state.objects.length - 1);
+    }
+  }
+
+  textOverlay.style.display = 'none';
+  textOverlay.textContent = '';
+}
+
+// 텍스트 오버레이 이벤트
+textOverlay.addEventListener('keydown', (e) => {
+  // 한글 IME 가드 (isComposing + Android/구형 iOS keyCode 229 이중 방어)
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    closeTextOverlay(true);
+  }
+  if (e.key === 'Escape') {
+    closeTextOverlay(false);
+  }
+});
+
+let textCommitting = false;
+textOverlay.addEventListener('blur', () => {
+  // blur 시 자동 확정 — 이미 확정 중이거나 도구 버튼 탭으로 포커스가 이동하는 경우 중복 방지
+  if (textCommitting) return;
+  textCommitting = true;
+  setTimeout(() => {
+    if (textOverlay.style.display === 'block') {
+      closeTextOverlay(true);
+    }
+    textCommitting = false;
+  }, 150);
+});
+
+// ===== 오브젝트 선택 =====
+function selectObject(idx) {
+  state.selectedObjIdx = idx;
+  renderHandles();
+
+  // 도구 모음 → 오브젝트 바
+  toolBar.style.display = 'none';
+  objectBar.style.display = 'flex';
+  closeDrawer();
+}
+
+function deselectObject() {
+  state.selectedObjIdx = -1;
+  clearHandles();
+
+  if (state.mode === 'edit') {
+    toolBar.style.display = 'flex';
+    objectBar.style.display = 'none';
+  }
+}
+
+function clearHandles() {
+  handleOverlay.innerHTML = '';
+}
+
+function renderHandles() {
+  clearHandles();
+  const idx = state.selectedObjIdx;
+  if (idx < 0 || idx >= state.objects.length) return;
+
+  const obj = state.objects[idx];
+  let x, y, w, h;
+
+  if (obj.type === 'image') {
+    x = obj.x; y = obj.y; w = obj.width; h = obj.height;
+  } else if (obj.type === 'text') {
+    // 텍스트 크기 계산
+    const fontSize = obj.fontSize || 16;
+    const lines = obj.text.split('\n');
+    const lineH = fontSize * 1.4;
+
+    // 임시로 캔버스 폰트 설정해서 너비 측정
+    ctx.save();
+    ctx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily}`;
+    let maxW = 0;
+    for (const line of lines) {
+      const tw = ctx.measureText(line).width;
+      if (tw > maxW) maxW = tw;
+    }
+    ctx.restore();
+
+    x = obj.x; y = obj.y;
+    w = Math.max(maxW, 60);
+    h = lines.length * lineH;
+  }
+
+  const box = document.createElement('div');
+  box.className = 'object-handle-box';
+  box.style.left = x + 'px';
+  box.style.top = y + 'px';
+  box.style.width = w + 'px';
+  box.style.height = h + 'px';
+
+  // 이동 드래그
+  setupMoveDrag(box, idx, x, y);
+
+  // 모서리 핸들 4개
+  const corners = [
+    { cls: 'tl', ox: 0, oy: 0 },
+    { cls: 'tr', ox: 1, oy: 0 },
+    { cls: 'bl', ox: 0, oy: 1 },
+    { cls: 'br', ox: 1, oy: 1 },
+  ];
+
+  for (const c of corners) {
+    const handle = document.createElement('div');
+    handle.className = `handle-corner ${c.cls}`;
+    handle.style.left = (c.ox * w) + 'px';
+    handle.style.top = (c.oy * h) + 'px';
+    setupResizeDrag(handle, idx, c.cls);
+    box.appendChild(handle);
+  }
+
+  handleOverlay.appendChild(box);
+}
+
+// 오브젝트 이동 드래그
+function setupMoveDrag(el, idx, initX, initY) {
+  let startX, startY, startObjX, startObjY;
+  let renderLock = false;
+
+  function onStart(e) {
+    e.stopPropagation();
+    const pt = getPointerXY(e);
+    startX = pt.x;
+    startY = pt.y;
+    const obj = state.objects[idx];
+    startObjX = obj.x;
+    startObjY = obj.y;
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+  }
+
+  async function onMove(e) {
+    if (renderLock) return;
+    renderLock = true;
+
+    const pt = getPointerXY(e);
+    const obj = state.objects[idx];
+    obj.x = startObjX + (pt.x - startX);
+    obj.y = startObjY + (pt.y - startY);
+
+    if (state.savedPng) {
+      await loadPngToCanvas(state.savedPng);
+      rerenderOnTop();
+    } else {
+      rerenderCanvasBlank();
+    }
+    renderHandles();
+    state.hasChanges = true;
+    renderLock = false;
+  }
+
+  function onEnd() {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onEnd);
+  }
+
+  el.addEventListener('pointerdown', onStart);
+}
+
+// 오브젝트 리사이즈 드래그
+function setupResizeDrag(el, idx, corner) {
+  let startX, startY, startObj;
+  let renderLock = false;
+
+  function onStart(e) {
+    e.stopPropagation();
+    const pt = getPointerXY(e);
+    startX = pt.x;
+    startY = pt.y;
+    const obj = state.objects[idx];
+    startObj = { x: obj.x, y: obj.y, width: obj.width, height: obj.height };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+  }
+
+  async function onMove(e) {
+    if (renderLock) return;
+    renderLock = true;
+    const pt = getPointerXY(e);
+    const dx = pt.x - startX;
+    const dy = pt.y - startY;
+    const obj = state.objects[idx];
+
+    if (obj.type === 'image') {
+      // 비율 유지 리사이즈 (br 핸들 기준)
+      if (corner === 'br') {
+        obj.width = Math.max(40, startObj.width + dx);
+        obj.height = Math.max(40, startObj.height + dy);
+      } else if (corner === 'bl') {
+        const newW = Math.max(40, startObj.width - dx);
+        obj.x = startObj.x + startObj.width - newW;
+        obj.width = newW;
+        obj.height = Math.max(40, startObj.height + dy);
+      } else if (corner === 'tr') {
+        obj.width = Math.max(40, startObj.width + dx);
+        const newH = Math.max(40, startObj.height - dy);
+        obj.y = startObj.y + startObj.height - newH;
+        obj.height = newH;
+      } else if (corner === 'tl') {
+        const newW = Math.max(40, startObj.width - dx);
+        const newH = Math.max(40, startObj.height - dy);
+        obj.x = startObj.x + startObj.width - newW;
+        obj.y = startObj.y + startObj.height - newH;
+        obj.width = newW;
+        obj.height = newH;
+      }
+    } else if (obj.type === 'text') {
+      // 텍스트는 위치만 변경 (br 핸들은 미구현, 다른 핸들로 이동)
+      if (corner === 'tl') {
+        obj.x = startObj.x + dx;
+        obj.y = startObj.y + dy;
+      }
+    }
+
+    if (state.savedPng) {
+      await loadPngToCanvas(state.savedPng);
+      rerenderOnTop();
+    } else {
+      rerenderCanvasBlank();
+    }
+    renderHandles();
+    state.hasChanges = true;
+    renderLock = false;
+  }
+
+  function onEnd() {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onEnd);
+  }
+
+  el.addEventListener('pointerdown', onStart);
+}
+
+function getPointerXY(e) {
+  const rect = $('canvas-area').getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
+  };
+}
+
+// ===== 스와이프 페이지 이동 =====
+let swipeStartX = null;
+let swipeStartY = null;
+const SWIPE_THRESHOLD = 50;
+
+$('canvas-area').addEventListener('pointerdown', (e) => {
+  if (state.mode === 'edit') return;
+  swipeStartX = e.clientX;
+  swipeStartY = e.clientY;
+});
+
+$('canvas-area').addEventListener('pointerup', (e) => {
+  if (state.mode === 'edit' || swipeStartX === null) return;
+  const dx = e.clientX - swipeStartX;
+  const dy = e.clientY - swipeStartY;
+  swipeStartX = null;
+  swipeStartY = null;
+
+  // 수평 스와이프가 수직보다 명확할 때만 처리
+  if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return;
+
+  if (dx < 0) {
+    // 왼쪽 스와이프 → 다음 날짜
+    goNext();
+  } else {
+    // 오른쪽 스와이프 → 이전 날짜
+    goPrev();
+  }
+});
+
+function goPrev() {
+  const prev = addDays(state.currentDate, -1);
+  loadPage(prev);
+}
+
+function goNext() {
+  const next = addDays(state.currentDate, 1);
+  if (!isFuture(next)) {
+    loadPage(next);
+  }
+}
+
+// ===== 공유 시트 =====
+function openShareSheet() {
+  shareOverlay.classList.add('open');
+}
+
+function closeShareSheet() {
+  shareOverlay.classList.remove('open');
+}
+
+function downloadPng() {
+  const dataUrl = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `그림일기_${state.currentDate}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  closeShareSheet();
+  showToast('이미지가 저장되었습니다', false);
+}
+
+// ===== 이벤트 바인딩 =====
+
+// 날짜 이동
+btnPrev.addEventListener('click', goPrev);
+btnNext.addEventListener('click', goNext);
+
+// 편집 시작
+btnEditStart.addEventListener('click', () => {
+  enterEditMode();
+});
+
+// 공유
+btnShare.addEventListener('click', () => {
+  if (!btnShare.classList.contains('disabled')) {
+    openShareSheet();
+  }
+});
+
+// 편집 바
+btnCancel.addEventListener('click', handleCancel);
+btnSave.addEventListener('click', saveEntry);
+
+// 도구 모음
+$('tool-undo').addEventListener('click', undo);
+$('tool-pen').addEventListener('click', () => setTool('pen'));
+$('tool-eraser').addEventListener('click', () => setTool('eraser'));
+$('tool-text').addEventListener('click', () => {
+  setTool('text');
+  // 텍스트 도구 선택 후 캔버스 탭으로 입력 위치 지정 — 추가 안내
+});
+$('tool-image').addEventListener('click', () => {
+  setTool('image');
+  fileInput.click();
+});
+
+// 오브젝트 바
+$('btn-obj-delete').addEventListener('click', async () => {
+  if (state.selectedObjIdx >= 0) {
+    state.objects.splice(state.selectedObjIdx, 1);
+    state.hasChanges = true;
+    deselectObject();
+    if (state.savedPng) {
+      await loadPngToCanvas(state.savedPng);
+      rerenderOnTop();
+    } else {
+      rerenderCanvasBlank();
+    }
+  }
+});
+
+$('btn-obj-done').addEventListener('click', () => {
+  deselectObject();
+});
+
+// 색상 스워치
+document.querySelectorAll('.swatch-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.swatch-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    state.penColor = btn.dataset.color;
+  });
+});
+
+// 굵기 슬라이더
+penSizeSlider.addEventListener('input', () => {
+  state.penSize = parseInt(penSizeSlider.value, 10);
+  updateSizePreview();
+});
+
+function updateSizePreview() {
+  const size = state.penSize;
+  penSizePreviewDot.style.width = size + 'px';
+  penSizePreviewDot.style.height = size + 'px';
+  penSizePreviewDot.style.background = state.penColor;
+}
+
+// 공유 시트
+$('btn-download-png').addEventListener('click', downloadPng);
+$('btn-share-close').addEventListener('click', closeShareSheet);
+
+// 공유 시트 배경 탭 닫기
+shareOverlay.addEventListener('click', (e) => {
+  if (e.target === shareOverlay) closeShareSheet();
+});
+
+// 확인 다이얼로그
+$('btn-keep-editing').addEventListener('click', () => {
+  confirmOverlay.classList.remove('open');
+});
+$('btn-discard').addEventListener('click', doDiscard);
+
+// ===== 리사이즈 대응 =====
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resizeCanvas, 100);
+});
+
+// ===== Lucide 아이콘 초기화 =====
+function initIcons() {
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons({ attrs: { 'stroke-width': '1' } });
+  }
+}
+
+// ===== 앱 초기화 =====
+async function init() {
+  resizeCanvas();
+  initIcons();
+
+  try {
+    await openDB();
+  } catch (err) {
+    showToast('저장 기능을 사용할 수 없습니다 (개인정보 보호 모드 또는 저장공간 부족)', true);
+  }
+
+  state.currentDate = getToday();
+  await loadPage(state.currentDate);
+  updateSizePreview();
+}
+
+// DOM 준비 후 초기화
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>

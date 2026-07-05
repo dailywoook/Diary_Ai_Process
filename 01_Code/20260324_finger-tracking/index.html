@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finger Drawing — Glow Brush</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; width: 100vw; height: 100vh; background: #000; }
+
+    #video {
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    canvas {
+      position: fixed; top: 0; left: 0;
+      pointer-events: none;
+    }
+    #uiCanvas { z-index: 2; }
+
+    /* ── 툴바 ── */
+    #toolbar {
+      position: fixed;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 40px;
+      padding: 10px 20px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      user-select: none;
+    }
+    .palette { display: flex; gap: 8px; align-items: center; }
+    .swatch {
+      width: 24px; height: 24px; border-radius: 50%;
+      cursor: pointer; border: 2px solid transparent;
+      transition: transform 0.15s, border-color 0.15s; flex-shrink: 0;
+    }
+    .swatch:hover  { transform: scale(1.2); }
+    .swatch.active { border-color: #fff; transform: scale(1.25); }
+    .sep { width: 1px; height: 28px; background: rgba(255,255,255,0.18); flex-shrink: 0; }
+    .slider-wrap { display: flex; align-items: center; gap: 8px; }
+    .slider-label { color: rgba(255,255,255,0.5); font-family: monospace; font-size: 11px; white-space: nowrap; }
+    #brushSlider {
+      -webkit-appearance: none; appearance: none;
+      width: 100px; height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,0.25); outline: none; cursor: pointer;
+    }
+    #brushSlider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #fff; cursor: pointer;
+      box-shadow: 0 0 6px rgba(255,255,255,0.6);
+    }
+    #clearBtn {
+      background: none; border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 20px; color: rgba(255,255,255,0.55);
+      font-family: monospace; font-size: 11px; padding: 4px 12px;
+      cursor: pointer; transition: background 0.15s, color 0.15s;
+    }
+    #clearBtn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+    /* 상태 */
+    #status {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      color: rgba(255,255,255,0.45); font-family: monospace; font-size: 12px;
+      pointer-events: none; z-index: 10; letter-spacing: 0.06em;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="drawCanvas"></canvas>
+  <canvas id="uiCanvas"></canvas>
+  <div id="status">카메라 초기화 중...</div>
+
+  <div id="toolbar">
+    <div class="palette" id="palette"></div>
+    <div class="sep"></div>
+    <div class="slider-wrap">
+      <span class="slider-label">크기</span>
+      <input type="range" id="brushSlider" min="2" max="60" value="12">
+      <span class="slider-label" id="brushVal">12</span>
+    </div>
+    <div class="sep"></div>
+    <button id="clearBtn">지우기</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <script>
+    const video      = document.getElementById('video');
+    const statusEl   = document.getElementById('status');
+    const drawCanvas = document.getElementById('drawCanvas');
+    const drawCtx    = drawCanvas.getContext('2d');
+    const uiCanvas   = document.getElementById('uiCanvas');
+    const uiCtx      = uiCanvas.getContext('2d');
+
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      drawCanvas.width = uiCanvas.width  = w;
+      drawCanvas.height = uiCanvas.height = h;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // ── 팔레트 ───────────────────────────────────────────────────────────────
+    const COLORS = [
+      '#ffffff','#ff4f4f','#ff9b3b','#ffe94f',
+      '#4fff91','#4fb6ff','#a54fff','#ff4fce',
+    ];
+    let currentColor = '#ffffff';
+    const paletteEl = document.getElementById('palette');
+    COLORS.forEach(color => {
+      const sw = document.createElement('div');
+      sw.className = 'swatch' + (color === currentColor ? ' active' : '');
+      sw.style.background = color;
+      sw.addEventListener('click', () => {
+        currentColor = color;
+        document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+      });
+      paletteEl.appendChild(sw);
+    });
+
+    // ── 브러시 슬라이더 ──────────────────────────────────────────────────────
+    const slider   = document.getElementById('brushSlider');
+    const brushValEl = document.getElementById('brushVal');
+    let brushSize  = parseInt(slider.value);
+
+    function syncSlider() {
+      slider.value = brushSize;
+      brushValEl.textContent = brushSize;
+    }
+    slider.addEventListener('input', () => {
+      brushSize = parseInt(slider.value);
+      brushValEl.textContent = brushSize;
+    });
+
+    // ── 지우기 ───────────────────────────────────────────────────────────────
+    document.getElementById('clearBtn').addEventListener('click', clearDraw);
+    document.addEventListener('dblclick', clearDraw);
+    function clearDraw() {
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      prevX = prevY = null;
+    }
+
+    // ── 드로잉 상태 ──────────────────────────────────────────────────────────
+    let prevX      = null, prevY = null;
+    let handVisible = false, isPinching = false;
+    const PINCH_THRESHOLD = 0.055;  // 검지+중지 핀치 임계값
+
+    // ── 브러시 패널 상태 ─────────────────────────────────────────────────────
+    let brushPanelVisible = false;
+    let brushPanelOpacity = 0;
+
+    // 오른쪽 하단 코너 영역 (화면 비율)
+    const CORNER_X = 0.70;  // 화면 오른쪽 30%
+    const CORNER_Y = 0.65;  // 화면 아래쪽 35%
+    const CORNER_DWELL = 2000;  // 2초 유지 후 패널 오픈
+    let cornerEnterTime = null; // 코너 진입 시각
+
+    // 5손가락 스프레드 상태
+    let spreadSmooth = 0.12;
+    const SPREAD_MIN = 0.06;
+    const SPREAD_MAX = 0.22;
+
+    // ── 손가락 펼침 여부 카운트 (검지~소지, tip.y < mcp.y) ──────────────────
+    function countExtended(lm) {
+      const pairs = [[8,5],[12,9],[16,13],[20,17]];
+      return pairs.reduce((n, [tip, mcp]) => n + (lm[tip].y < lm[mcp].y ? 1 : 0), 0);
+    }
+
+    // 5손가락 팁 평균 스프레드 (팜 중심까지 평균 거리)
+    function calcSpread(lm) {
+      const palm = lm[9];
+      const tips = [4,8,12,16,20];
+      const avg = tips.reduce((s, t) => {
+        const dx = lm[t].x - palm.x, dy = lm[t].y - palm.y;
+        return s + Math.sqrt(dx*dx + dy*dy);
+      }, 0) / tips.length;
+      return avg;
+    }
+
+    // ── MediaPipe 결과 처리 ──────────────────────────────────────────────────
+    // UI 공유 변수
+    let uiFingerX = null, uiFingerY = null, uiPinching = false;
+    let uiFingerCount = 0, uiSpread = 0;
+
+    function onResults(results) {
+      const W = drawCanvas.width, H = drawCanvas.height;
+
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        handVisible = false; isPinching = false;
+        prevX = prevY = null; uiFingerCount = 0;
+        brushPanelVisible = false;
+        statusEl.textContent = '';
+        return;
+      }
+
+      const lm = results.multiHandLandmarks[0];
+      const n  = results.multiHandLandmarks.length;
+      statusEl.textContent = n > 0 ? `손 ${n}개 감지 중` : '';
+
+      const fingerCount = countExtended(lm);
+      uiFingerCount = fingerCount;
+
+      // ── 오른쪽 하단 코너 감지 → 브러시 패널 ─────────────────────────────
+      // 팜 중심(9) 화면 좌표 (미러 적용)
+      const palmSX = (1 - lm[9].x) * W;
+      const palmSY = lm[9].y * H;
+      const inCorner = palmSX > W * CORNER_X && palmSY > H * CORNER_Y;
+
+      if (inCorner) {
+        if (!brushPanelVisible) {
+          if (cornerEnterTime === null) cornerEnterTime = Date.now();
+          else if (Date.now() - cornerEnterTime >= CORNER_DWELL) brushPanelVisible = true;
+        }
+      } else {
+        cornerEnterTime = null;
+        if (brushPanelVisible) {
+          brushPanelVisible = false;
+          prevX = prevY = null;
+        }
+      }
+
+      // ── 브러시 패널 활성 중: 스프레드로 브러시 크기 조절 ─────────────────
+      const spread = calcSpread(lm);
+      spreadSmooth = spreadSmooth * 0.75 + spread * 0.25;
+      uiSpread = spreadSmooth;
+
+      if (brushPanelVisible) {
+        const t = Math.max(0, Math.min(1,
+          (spreadSmooth - SPREAD_MIN) / (SPREAD_MAX - SPREAD_MIN)
+        ));
+        brushSize = Math.round(2 + t * 58);
+        syncSlider();
+      }
+
+      // ── 드로잉: 검지(8) + 중지(12) 핀치 (패널 비활성 시만) ───────────────
+      const idx    = lm[8];
+      const curX   = (1 - idx.x) * W;
+      const curY   = idx.y * H;
+      const middle = lm[12];
+      const ddx = middle.x - idx.x, ddy = middle.y - idx.y;
+      const pinchDist = Math.sqrt(ddx*ddx + ddy*ddy);
+      const pinching  = pinchDist < PINCH_THRESHOLD;
+
+      if (!brushPanelVisible) {
+        if (pinching && !isPinching) { prevX = curX; prevY = curY; }
+
+        if (pinching && prevX !== null) {
+          drawCtx.lineWidth   = brushSize;
+          drawCtx.lineCap     = 'round';
+          drawCtx.lineJoin    = 'round';
+          drawCtx.strokeStyle = currentColor;
+          drawCtx.shadowColor = currentColor;
+          drawCtx.shadowBlur  = brushSize * 2;
+          drawCtx.beginPath();
+          drawCtx.moveTo(prevX, prevY);
+          drawCtx.lineTo(curX, curY);
+          drawCtx.stroke();
+        }
+
+        if (!pinching) { prevX = prevY = null; }
+        else { prevX = curX; prevY = curY; }
+      } else {
+        prevX = prevY = null; // 패널 모드 중 드로잉 중단
+      }
+
+      isPinching  = pinching;
+      handVisible = true;
+      uiFingerX   = curX;
+      uiFingerY   = curY;
+      uiPinching  = pinching && !brushPanelVisible;
+    }
+
+    // ── UI 오버레이 ──────────────────────────────────────────────────────────
+    function drawUI() {
+      uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+      const W = uiCanvas.width, H = uiCanvas.height;
+
+      // ── 브러시 패널 (오른쪽) ──────────────────────────────────────────────
+      if (brushPanelVisible || brushPanelOpacity > 0.01) {
+        // 페이드 인/아웃
+        brushPanelOpacity += brushPanelVisible
+          ? (1 - brushPanelOpacity) * 0.15
+          : -brushPanelOpacity * 0.12;
+        brushPanelOpacity = Math.max(0, Math.min(1, brushPanelOpacity));
+
+        const op = brushPanelOpacity;
+        const px = W - 72, py = H / 2;
+        const trackH = 260, trackW = 6;
+        const trackX = px, trackY = py - trackH / 2;
+
+        // 패널 배경
+        roundRect(uiCtx, px - 30, trackY - 30, 62, trackH + 60, 18,
+          `rgba(0,0,0,${0.6 * op})`);
+        uiCtx.strokeStyle = `rgba(255,255,255,${0.12 * op})`;
+        uiCtx.lineWidth = 1;
+        uiCtx.stroke();
+
+        // 트랙
+        uiCtx.beginPath();
+        uiCtx.roundRect(trackX - trackW/2, trackY, trackW, trackH, 3);
+        uiCtx.fillStyle = `rgba(255,255,255,${0.18 * op})`;
+        uiCtx.fill();
+
+        // 채움 (현재 크기 비율)
+        const ratio = (brushSize - 2) / 58;
+        const fillH = trackH * ratio;
+        uiCtx.beginPath();
+        uiCtx.roundRect(trackX - trackW/2, trackY + trackH - fillH, trackW, fillH, 3);
+        uiCtx.fillStyle = `rgba(255,255,255,${0.7 * op})`;
+        uiCtx.fill();
+
+        // 손잡이
+        const handleY = trackY + trackH - fillH;
+        uiCtx.beginPath();
+        uiCtx.arc(trackX, handleY, 9, 0, Math.PI * 2);
+        uiCtx.fillStyle = `rgba(255,255,255,${op})`;
+        uiCtx.shadowColor = 'white';
+        uiCtx.shadowBlur  = 8 * op;
+        uiCtx.fill();
+        uiCtx.shadowBlur = 0;
+
+        // 미리보기 원
+        const previewR = Math.max(brushSize / 2, 3);
+        uiCtx.beginPath();
+        uiCtx.arc(trackX, trackY - 14, previewR, 0, Math.PI * 2);
+        uiCtx.fillStyle = `rgba(255,255,255,${0.4 * op})`;
+        uiCtx.strokeStyle = `rgba(255,255,255,${0.7 * op})`;
+        uiCtx.lineWidth = 1.5;
+        uiCtx.fill();
+        uiCtx.stroke();
+
+        // 크기 숫자
+        uiCtx.font = `bold 12px monospace`;
+        uiCtx.fillStyle = `rgba(255,255,255,${0.65 * op})`;
+        uiCtx.textAlign = 'center';
+        uiCtx.fillText(`${brushSize}`, trackX, trackY + trackH + 20);
+
+        // 라벨
+        uiCtx.font = `10px monospace`;
+        uiCtx.fillStyle = `rgba(255,255,255,${0.35 * op})`;
+        uiCtx.fillText('브러시', trackX, trackY + trackH + 34);
+
+      } else {
+        brushPanelOpacity = 0;
+      }
+
+      // ── 코너 대기 진행 표시 (2초 카운트다운 원) ───────────────────────────
+      if (!brushPanelVisible && cornerEnterTime !== null) {
+        const elapsed = Date.now() - cornerEnterTime;
+        const progress = Math.min(elapsed / CORNER_DWELL, 1);
+        const cx = W - 48, cy = H - 48, radius = 20;
+
+        // 배경 원
+        uiCtx.beginPath();
+        uiCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+        uiCtx.strokeStyle = 'rgba(255,255,255,0.15)';
+        uiCtx.lineWidth = 3;
+        uiCtx.stroke();
+
+        // 진행 호
+        uiCtx.beginPath();
+        uiCtx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        uiCtx.strokeStyle = 'rgba(255,255,255,0.85)';
+        uiCtx.lineWidth = 3;
+        uiCtx.shadowColor = 'white';
+        uiCtx.shadowBlur = 8;
+        uiCtx.stroke();
+        uiCtx.shadowBlur = 0;
+
+        // 아이콘
+        uiCtx.font = '14px monospace';
+        uiCtx.fillStyle = 'rgba(255,255,255,0.7)';
+        uiCtx.textAlign = 'center';
+        uiCtx.fillText('⬤', cx, cy + 5);
+      }
+
+      // ── 검지 커서 마커 ─────────────────────────────────────────────────────
+      if (handVisible && uiFingerX !== null) {
+        const x = uiFingerX, y = uiFingerY;
+        const r = Math.max(brushSize / 2, 6);
+
+        const grd = uiCtx.createRadialGradient(x, y, 0, x, y, r * 2);
+        const alpha = uiPinching ? 0.95 : 0.5;
+        grd.addColorStop(0, hexToRgba(currentColor, alpha));
+        grd.addColorStop(1, hexToRgba(currentColor, 0));
+        uiCtx.beginPath();
+        uiCtx.arc(x, y, r * 2, 0, Math.PI * 2);
+        uiCtx.fillStyle = grd;
+        uiCtx.fill();
+
+        uiCtx.beginPath();
+        uiCtx.arc(x, y, r, 0, Math.PI * 2);
+        uiCtx.strokeStyle = uiPinching
+          ? hexToRgba(currentColor, 0.9)
+          : 'rgba(255,255,255,0.35)';
+        uiCtx.lineWidth = uiPinching ? 2 : 1.5;
+        uiCtx.stroke();
+
+        // 브러시 패널 모드 표시
+        if (brushPanelVisible) {
+          uiCtx.font = '11px monospace';
+          uiCtx.fillStyle = 'rgba(255,255,255,0.6)';
+          uiCtx.textAlign = 'center';
+          uiCtx.fillText('↔ 크기조절', x, y - r - 8);
+        }
+      }
+
+      // ── 스와이프 힌트 (손이 있고 패널 없을 때) ────────────────────────────
+      if (handVisible && !brushPanelVisible && brushPanelOpacity < 0.05) {
+        uiCtx.font = '10px monospace';
+        uiCtx.fillStyle = 'rgba(255,255,255,0.2)';
+        uiCtx.textAlign = 'right';
+        uiCtx.fillText('↘ 오른쪽 하단에 손 대면 브러시 크기 조절', W - 16, H - 60);
+      }
+
+      requestAnimationFrame(drawUI);
+    }
+
+    // ── 유틸 ─────────────────────────────────────────────────────────────────
+    function hexToRgba(hex, alpha) {
+      const r = parseInt(hex.slice(1,3), 16);
+      const g = parseInt(hex.slice(3,5), 16);
+      const b = parseInt(hex.slice(5,7), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    // roundRect 폴리필
+    function roundRect(ctx, x, y, w, h, r, fill) {
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x, y, w, h, r);
+      } else {
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+        ctx.lineTo(x+w, y+h-r);
+        ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+        ctx.lineTo(x+r, y+h);
+        ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+        ctx.lineTo(x, y+r);
+        ctx.quadraticCurveTo(x, y, x+r, y);
+        ctx.closePath();
+      }
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+
+    // ── MediaPipe 초기화 ─────────────────────────────────────────────────────
+    function initMediaPipe() {
+      const hands = new Hands({
+        locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+      });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.6,
+      });
+      hands.onResults(onResults);
+
+      const camera = new Camera(video, {
+        onFrame: async () => { await hands.send({ image: video }); },
+        width: 1280, height: 720,
+      });
+      camera.start()
+        .then(() => { statusEl.textContent = ''; })
+        .catch(err => { statusEl.textContent = '카메라 오류: ' + err.message; });
+    }
+
+    drawUI();
+    initMediaPipe();
+  </script>
+</body>
+</html>
